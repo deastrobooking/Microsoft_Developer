@@ -1,7 +1,6 @@
 # Microsoft_Developer
 Github/ Copilot, Azure, Visual Studio Code, Visual Studio and More. 
 # Microsoft Developer Resources: Curated URLs and Descriptions
-
 A practical, single-page index of official Microsoft developer resources across Azure, GitHub, Visual Studio Code, Visual Studio, Microsoft 365 (Office 365), and Copilot. Each link goes to a canonical landing page or documentation hub.
 
 Tip: Use this as a team-wide bookmark list. Contributions welcome.
@@ -47,6 +46,15 @@ Tip: Use this as a team-wide bookmark list. Contributions welcome.
 - Copilot in the CLI: https://docs.github.com/copilot/using-github-copilot/using-github-copilot-in-the-cli — AI help directly in your terminal.
 - GitHub Status: https://www.githubstatus.com/ — Platform status and incident history.
 
+- [Bugs Ongoing Issues Crashes](https://www.githubstatus.com/incidents/4jxdz4m769gy)
+- [GITHUB DEVELOPER PROGRAM](https://docs.github.com/en/integrations/concepts/github-developer-program)
+- [GITHUBAPI Guides](https://docs.github.com/en/rest/guides)
+- [GITHUB DOCS](https://docs.github.com/en)
+- [About Creating Github Apps](https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps)
+- [GITHUB DEVELOPER COMMUNITY FORUM](https://github.com/orgs/community/discussions/)
+- [About Building Integrations](https://docs.github.com/en/integrations/concepts/about-building-integrations)
+- [Github Contact](https://support.github.com/request?tags=dotcom-contact-params)
+- 
 ---
 
 ## Visual Studio Code
