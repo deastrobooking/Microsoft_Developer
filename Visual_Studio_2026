@@ -1,0 +1,357 @@
+# Developer Guide: Building Visual Studio Extensions and Using Copilot in Visual Studio (2026-ready)
+
+This guide helps you:
+- Build, test, and publish Visual Studio (VS) extensions using the modern extensibility models.
+- Use GitHub Copilot effectively in Visual Studio.
+- Combine your VS extensions with Copilot-driven developer workflows.
+
+Notes:
+- The guidance targets current Visual Studio (VS 2022/17.x) and is forward-compatible for VS “2026.” API details may evolve—always verify against the latest docs and SDK releases.
+
+References:
+- Visual Studio Extensibility (VSX) docs: https://learn.microsoft.com/visualstudio/extensibility/
+- New model (VisualStudio.Extensibility): https://learn.microsoft.com/visualstudio/extensibility/visualstudio.extensibility/overview
+- Classic VS SDK (in-proc, VSIX): https://learn.microsoft.com/visualstudio/extensibility/visual-studio-sdk
+- VS Marketplace publishing: https://learn.microsoft.com/visualstudio/extensibility/walkthrough-publishing-a-visual-studio-extension
+- GitHub Copilot for Visual Studio: https://marketplace.visualstudio.com/items?itemName=GitHub.copilotvs
+- Copilot Chat for Visual Studio: https://marketplace.visualstudio.com/items?itemName=GitHub.copilotvs-chat
+- Copilot docs: https://docs.github.com/copilot
+
+---
+
+## 1) Prerequisites
+
+- Visual Studio (latest stable or preview with Extensibility workload)
+  - Workloads: “Visual Studio extension development”, plus language workloads you use (e.g., .NET)
+- .NET SDK (for managed extensions)
+- VS SDK and tooling installed (via VS Installer)
+- A Microsoft/VS Marketplace publisher account (to publish)
+- Optional for new model: VisualStudio.Extensibility SDK (NuGet packages and templates)
+
+Helpful tools:
+- VSIX Project templates (classic model)
+- VisualStudio.Extensibility templates (new, out-of-proc model)
+- Git for versioning, CI
+
+---
+
+## 2) Choose an extensibility model
+
+Two main approaches:
+- New model (recommended, evolving): VisualStudio.Extensibility
+  - Out-of-process, more resilient, modern .NET, improved isolation.
+  - Good for commands, menus, tool windows, editor interactions, diagnostics, etc.
+- Classic model (mature, in-proc): VSIX + AsyncPackage + MEF
+  - Broad capability surface, legacy components. Must be highly performance-conscious to avoid blocking the UI thread.
+
+Pick the model based on:
+- Required capabilities today
+- Performance and isolation needs
+- Long-term maintenance preferences
+
+Docs:
+- New model overview: https://learn.microsoft.com/visualstudio/extensibility/visualstudio.extensibility/overview
+- Classic SDK: https://learn.microsoft.com/visualstudio/extensibility/visual-studio-sdk
+
+---
+
+## 3) Create your first extension (new model)
+
+Scaffold (from Visual Studio “Extensibility” project templates):
+- Create a new “VisualStudio.Extensibility” extension project (C#).
+- Choose a Command sample template if available.
+
+Minimal command (C#; new model pattern):
+
+```csharp
+// Commands/MyHelloCommand.cs
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.VisualStudio.Extensibility;
+using Microsoft.VisualStudio.Extensibility.Commands;
+
+[VisualStudioContribution]
+public class MyHelloCommand : Command
+{
+    public override CommandConfiguration GetConfiguration()
+        => new("%MyExtension.MyHelloCommand.DisplayName%")
+            with { Placements = new[] { CommandPlacement.Menu(MenuIdentifiers.Extensions) } };
+
+    public override async Task ExecuteCommandAsync(IClientContext context, CancellationToken ct)
+    {
+        await context.ShowMessageBoxAsync("Hello from MyExtension!", MessageBoxKind.Information, ct);
+    }
+}
+```
+
+Extension entry (if applicable):
+
+```csharp
+// MyExtension.cs
+using Microsoft.VisualStudio.Extensibility;
+
+[VisualStudioContribution]
+public class MyExtension : Extension
+{
+    public override ExtensionConfiguration GetConfiguration()
+        => new(displayName: "MyExtension",
+               version: new(1,0,0),
+               publisherName: "YourPublisher");
+}
+```
+
+Run and debug:
+- Press F5 to launch an Experimental instance of Visual Studio.
+- Open Extensions menu → run your command.
+
+Packaging:
+- Builds a VSIX behind the scenes; verify manifest data and icon assets.
+
+Docs:
+- Commands & menus: https://learn.microsoft.com/visualstudio/extensibility/visualstudio.extensibility/commands
+- UI components & ext points: https://learn.microsoft.com/visualstudio/extensibility/visualstudio.extensibility/extensibility-points
+
+---
+
+## 4) Create your first extension (classic model)
+
+Scaffold:
+- New Project → “VSIX Project” (C#)
+- Add a VS Command Table (.vsct) and an AsyncPackage.
+
+Register a command (VSCT):
+
+```xml
+<!-- MyCommands.vsct -->
+<Commands package="guidPackage">
+  <Groups>
+    <Group guid="guidPackageCmdSet" id="MyGroup" priority="0x0100">
+      <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS" />
+    </Group>
+  </Groups>
+  <Buttons>
+    <Button guid="guidPackageCmdSet" id="cmdidSayHello" priority="0x0100" type="Button">
+      <Parent guid="guidPackageCmdSet" id="MyGroup" />
+      <Strings>
+        <ButtonText>Say Hello</ButtonText>
+      </Strings>
+    </Button>
+  </Buttons>
+</Commands>
+```
+
+AsyncPackage and command handler:
+
+```csharp
+// MyPackage.cs
+using Microsoft.VisualStudio.Shell;
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+using Task = System.Threading.Tasks.Task;
+
+[PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
+[InstalledProductRegistration("MyExtension", "Sample extension", "1.0")]
+[ProvideMenuResource("Menus.ctmenu", 1)]
+[Guid("YOUR-PACKAGE-GUID")]
+public sealed class MyPackage : AsyncPackage
+{
+    protected override async Task InitializeAsync(CancellationToken ct, IProgress<ServiceProgressData> progress)
+    {
+        await JoinableTaskFactory.SwitchToMainThreadAsync(ct);
+        await SayHelloCommand.InitializeAsync(this);
+    }
+}
+
+// SayHelloCommand.cs
+using EnvDTE;
+using Microsoft.VisualStudio.Shell;
+using System;
+using System.ComponentModel.Design;
+using Task = System.Threading.Tasks.Task;
+
+internal sealed class SayHelloCommand
+{
+    private SayHelloCommand(AsyncPackage package, OleMenuCommandService commandService)
+    {
+        var cmdId = new CommandID(GuidList.GuidPackageCmdSet, PkgCmdIDList.CmdidSayHello);
+        var menuItem = new MenuCommand((s,e) =>
+            VsShellUtilities.ShowMessageBox(package, "Hello from MyExtension!", "MyExtension",
+                OLEMSGICON.OLEMSGICON_INFO, OLEMSGBUTTON.OLEMSGBUTTON_OK, OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST),
+            cmdId);
+        commandService.AddCommand(menuItem);
+    }
+
+    public static async Task InitializeAsync(AsyncPackage package)
+    {
+        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+        var mcs = await package.GetServiceAsync(typeof(IMenuCommandService)) as OleMenuCommandService;
+        _ = new SayHelloCommand(package, mcs!);
+    }
+}
+```
+
+Run and debug:
+- F5 launches the Experimental instance; Tools menu → “Say Hello”.
+
+Docs:
+- VSIX & VSCT basics: https://learn.microsoft.com/visualstudio/extensibility/internals/command-table-format-vsct-files
+- AsyncPackage: https://learn.microsoft.com/visualstudio/extensibility/asyncpackage-overview
+
+---
+
+## 5) Common capabilities you can add
+
+- Commands, menus, and context menus
+- Tool windows and panes
+- Editor adornments, classifiers, quick actions, LSP integration
+- Solution/project system contributions
+- Debugger visualizers and extensions
+- Test adapters and diagnostics
+- Authentication and secure storage (Credential Manager, Windows DPAPI, or custom vault flows)
+
+Guides:
+- Extensibility points: https://learn.microsoft.com/visualstudio/extensibility/extensibility-points
+- Editor extensibility: https://learn.microsoft.com/visualstudio/extensibility/editor/overview
+
+---
+
+## 6) Quality, performance, and security
+
+- Startup and activation
+  - Use background loading (classic) and precise activation; avoid blocking UI thread.
+- Threading
+  - Follow JTF patterns; switch to UI thread only when necessary.
+- Performance
+  - Lazy-load components; cache efficiently; measure with PerfView/diagnostic tools.
+- Reliability
+  - Guard external calls; handle cancellation; add robust error paths.
+- Security
+  - Validate inputs; least-privilege tokens; never store secrets in code.
+- Telemetry
+  - Explicitly document what’s collected; avoid PII; provide opt-out.
+- Accessibility and localization
+  - Keyboard navigation, screen reader labels, `resx` for strings.
+
+Checklists:
+- [ ] Minimal activation/placement
+- [ ] UI-thread usage audited
+- [ ] Error logs and user-friendly messages
+- [ ] Privacy and telemetry notes in README
+- [ ] Unit/integration tests for core flows
+
+---
+
+## 7) Package and publish to Visual Studio Marketplace
+
+Versioning:
+- Use SemVer; mark preview builds as such.
+
+Package:
+- VSIX manifest includes: display name, ID, version, publisher, supported VS versions, assets, license, privacy policy.
+
+Publish:
+- Create/verify your Marketplace publisher
+- Upload VSIX or automate via CI
+- Provide rich listing: screenshots/GIF, features, permissions rationale, docs, changelog, issue tracker
+
+Docs:
+- Publishing walkthrough: https://learn.microsoft.com/visualstudio/extensibility/walkthrough-publishing-a-visual-studio-extension
+- Marketplace: https://marketplace.visualstudio.com/vs
+
+---
+
+## 8) GitHub Copilot in Visual Studio
+
+Install:
+- [GitHub Copilot for Visual Studio](https://marketplace.visualstudio.com/items?itemName=GitHub.copilotvs)
+- [GitHub Copilot Chat for Visual Studio](https://marketplace.visualstudio.com/items?itemName=GitHub.copilotvs-chat)
+- Sign in with a Copilot-enabled GitHub account.
+
+Core features:
+- Inline completions (ghost text) with Tab/Enter acceptance
+- Chat tool window for explanations, tests, refactoring suggestions
+- Inline chat and “Ask Copilot” from editor selections
+- Test and commit assistance via chat prompts
+
+Best practices:
+- Provide context: file/selection + constraints (“using xunit”, “no new deps”).
+- Review diffs before applying edits.
+- Break requests into smaller steps; prefer deterministic prompts.
+- Use Copilot for scaffolding, tests, docs; keep critical logic reviewed.
+
+Troubleshooting:
+- Check Extensions → Manage Extensions → updates
+- Output windows: “GitHub Copilot” / “GitHub Copilot Chat”
+- Verify proxy and auth; update Visual Studio to latest
+
+Admin/enterprise:
+- Policies, content exclusions, and auditing options: https://docs.github.com/copilot
+
+Note on extensibility:
+- There is no public API to extend Copilot itself inside Visual Studio at this time. Integrate your extension’s features (commands, tool windows, analyzers) and let users combine them with Copilot workflows.
+
+---
+
+## 9) Patterns for combining VS extensions with Copilot
+
+- Assist + Verify
+  - Your command runs analyzers/tests; Copilot explains failures and proposes fixes.
+- Guided refactors
+  - Provide deterministic fixers/code actions; Copilot documents and augments where needed.
+- Tool-augmented tasks
+  - Your tool window invokes domain services (e.g., Azure, Graph); Copilot turns outputs into code changes or docs.
+
+Design tips:
+- Idempotent, cancellable operations
+- Clear, copyable summaries for Copilot to transform
+- Emit concise diagnostics that Copilot can reason about
+- Include correlation IDs in logs for support
+
+---
+
+## 10) Testing, CI, and operations
+
+- Testing
+  - Unit tests for services; integration tests using the Experimental instance
+- CI
+  - Build VSIX, run tests, sign artifacts
+- Release
+  - Changelog per version; pre-release channels for breaking changes
+- Support
+  - GitHub issues; “good first issue” and “help wanted” labels
+- Telemetry
+  - Track activation time, command latency, error rates; respect privacy
+
+---
+
+## 11) Quick-start checklists
+
+Build (new model):
+- [ ] Scaffold VisualStudio.Extensibility project
+- [ ] Add a command and a tool window
+- [ ] Implement async patterns and cancellation
+- [ ] Test in Experimental instance
+- [ ] Prepare Marketplace assets and publish
+
+Build (classic model):
+- [ ] VSIX + AsyncPackage + VSCT
+- [ ] Add command and (optionally) a ToolWindowPane
+- [ ] Audit UI-thread usage and performance
+- [ ] Test in Experimental instance
+- [ ] Prepare Marketplace assets and publish
+
+Use Copilot effectively:
+- [ ] Install Copilot + Copilot Chat
+- [ ] Sign in and verify license
+- [ ] Try inline chat on a selected method
+- [ ] Ask Copilot to generate tests with your framework
+- [ ] Review changes before apply
+
+---
+
+If you share which model you prefer (new out-of-proc vs classic in-proc), your target features (commands, tool windows, editor), and any external services you’ll call, I can generate a ready-to-build starter solution with:
+- Commands, menus, and a sample tool window
+- Async patterns and logging
+- Marketplace-ready README and icon
+- CI to build, sign, and attach the VSIX artifact
